@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enigma Engineering Lab</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { overflow: hidden; background-color: #0c0a0f; color: #e3e3e3; font-family: 'Google Sans', -apple-system, sans-serif; display: flex; height: 100vh; width: 100vw; }
+
+/* 3D 뷰어(중앙 박스) 영역 설정 */
+#viewer-container { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: transparent; z-index: 1; overflow: hidden; }
+
+/* LineWaves 캔버스가 오직 3D 뷰어 컨테이너 내부의 배경으로만 작용하도록 격리 */
+#bg-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+#viewer-container canvas { position: relative; z-index: 1; display: block; outline: none; }
+
+#upload-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(12,10,15,0.75); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(12px); }
+.upload-card { background: rgba(22,20,26,0.9); padding: 50px 60px; border-radius: 28px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 460px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+.upload-card h2 { font-size: 26px; color: #e3e3e3; margin-bottom: 14px; font-weight: 500; letter-spacing: -0.5px; }
+.upload-card p { color: #aaa6b2; font-size: 14px; margin-bottom: 28px; line-height: 1.6; }
+
+.btn-primary { background: #a8c7fa; color: #041e49; border: none; padding: 14px 32px; font-size: 14px; font-weight: 500; border-radius: 100px; cursor: pointer; transition: 0.2s; font-family: inherit; }
+.btn-primary:hover { background: #c2e7ff; transform: translateY(-1px); }
+#sys-status { margin-top: 20px; font-size: 13px; color: #a8c7fa; font-family: 'Roboto Mono', monospace; }
+
+.panel { width: 440px; height: 100vh; display: none; flex-shrink: 0; z-index: 10; padding: 20px; background: transparent; position: relative; }
+
+/* BorderGlow 디자인 시스템 레이아웃 */
+.border-glow-card { position: relative; background: rgba(18, 15, 23, 0.4); border-radius: 28px; height: 100%; width: 100%; overflow: hidden; border: 1px solid rgba(255,255,255,0.03); box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; flex-direction: column; }
+.border-glow-card::before { content: ''; position: absolute; inset: 0; background: var(--gradient-base, transparent); background-image: var(--gradient-one, none), var(--gradient-two, none), var(--gradient-three, none), var(--gradient-four, none), var(--gradient-five, none), var(--gradient-six, none), var(--gradient-seven, none); background-blend-mode: screen; opacity: calc(calc(var(--edge-proximity, 0) / 100) * var(--fill-opacity, 0.5)); transition: opacity 0.15s ease; z-index: 0; pointer-events: none; }
+.edge-light { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: inset 0 0 var(--glow-padding, 40px) var(--glow-color, rgba(192,132,252,0.3)); mask: conic-gradient(from var(--cursor-angle, 0deg) at 50% 50%, black, transparent calc(var(--cone-spread, 25) * 1deg), transparent calc(360deg - calc(var(--cone-spread, 25) * 1deg)), black); -webkit-mask: conic-gradient(from var(--cursor-angle, 0deg) at 50% 50%, black, transparent calc(var(--cone-spread, 25) * 1deg), transparent calc(360deg - calc(var(--cone-spread, 25) * 1deg)), black); z-index: 1; opacity: calc(var(--edge-proximity, 0) / 100); transition: opacity 0.1s ease; }
+.border-glow-inner { position: relative; z-index: 2; height: 100%; width: 100%; display: flex; flex-direction: column; background: rgba(18, 15, 23, 0.65); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+
+.panel-header { padding: 24px; font-weight: 700; font-size: 19px; color: #f3f3f3; border-bottom: 1px solid rgba(255,255,255,0.08); letter-spacing: -0.3px; }
+.section { padding: 22px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; overflow-y: auto; }
+.section-title { font-size: 13px; color: #c084fc; font-weight: 700; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.8px; }
+.info-desc { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; }
+.info-desc h3 { font-size: 13.5px; color: #a8c7fa; margin-bottom: 6px; font-weight: 500; }
+.info-desc p { font-size: 12.5px; color: #c4c7c5; line-height: 1.6; }
+.control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.control-label { font-size: 13px; color: #e3e3e3; }
+.select-box { background: rgba(0,0,0,0.5); color: #e3e3e3; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 10px; font-family: inherit; font-size: 13px; width: 120px; outline: none; cursor: pointer; }
+
+/* 탭 UI */
+.mode-tabs { display: flex; gap: 6px; background: rgba(0,0,0,0.4); padding: 4px; border-radius: 14px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.05); }
+.mode-tab { flex: 1; padding: 10px 4px; background: transparent; border: none; color: #aaa6b2; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 500; transition: 0.2s; font-family: inherit; }
+.mode-tab.active { background: rgba(192,132,252,0.2); color: #c084fc; border: 1px solid rgba(192,132,252,0.3); }
+
+.text-area-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px; color: #e3e3e3; font-family: 'Roboto Mono', monospace; font-size: 14px; min-height: 90px; resize: none; outline: none; width: 100%; margin-bottom: 14px; line-height: 1.5; }
+.text-area-box:focus { border-color: #c084fc; }
+.result-display { background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.05); padding: 14px; border-radius: 14px; min-height: 60px; font-family: 'Roboto Mono', monospace; font-size: 15px; color: #81c995; word-break: break-all; margin-bottom: 4px; white-space: pre-wrap; }
+.terminal { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.08); padding: 16px; height: 160px; overflow-y: auto; font-size: 12.5px; line-height: 1.6; color: #dcdcdc; border-radius: 16px; font-family: 'Roboto Mono', monospace; }
+.t-fwd { color: #f28b82; } .t-ref { color: #fbbc04; font-weight: bold; } .t-bak { color: #81c995; }
+.t-math { color: #38bdf8; font-style: italic; font-size: 11.5px; }
+
+.plug-input { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #e3e3e3; padding: 10px 14px; border-radius: 12px; font-size: 13px; font-family: 'Roboto Mono', monospace; width: 100%; outline: none; text-transform: uppercase; }
+.plug-input:focus { border-color: #38bdf8; }
+.btn-reset { width: 100%; padding: 14px; background: transparent; color: #f28b82; border: 1px solid rgba(242,139,130,0.4); font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 100px; transition: 0.2s; margin-top: auto; font-family: inherit; }
+.btn-reset:hover { background: rgba(242,139,130,0.1); border-color: #f28b82; }
+
+.hidden { display: none !important; }
+</style>
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "ogl": "https://cdn.jsdelivr.net/npm/ogl@0.0.117/dist/ogl.mjs"
+    }
+}
+</script>
+</head>
+<body>
+
+<div id="left-panel" class="panel">
+    <div class="border-glow-card" id="left-glow">
+        <span class="edge-light"></span>
+        <div class="border-glow-inner">
+            <div class="panel-header">에니그마 구조 및 매커니즘 설명</div>
+            <div class="section" style="flex: 1;">
+                <div class="section-title">하드웨어 핵심 장치</div>
+                <div class="info-desc">
+                    <h3>1. 로터 시스템 (Rotors)</h3>
+                    <p>내부에 복잡한 교차 회로가 들어있는 알파벳 치환 바퀴입니다. 본 체험 랩에서는 완벽히 독립된 인코딩/디코딩 상태 분석을 위해 자동 회전 기능을 배제하고 고정된 대칭 전선 매핑 구조만 활성화해 둡니다.</p>
+                </div>
+                <div class="info-desc">
+                    <h3>2. 반사판 (Reflector)</h3>
+                    <p>오른쪽에서 들어온 신호를 좌측 끝에서 받아 다시 반대로 반사시키는 거울 회로입니다. 이 장치 덕분에 인코딩을 거친 암호문을 동일 기계 세팅에 넣었을 때 원래 문장으로 풀리는 복호화(디코딩)가 성립됩니다.</p>
+                </div>
+                <div class="info-desc">
+                    <h3>3. 플러그보드 (Plugboard)</h3>
+                    <p>기계 전면에서 두 알파벳을 임의의 케이블로 교차 연결하여 연산 규칙을 한 단계 더 꼬아버리는 교환대입니다. 예컨대 'AB' 입력 시 고속으로 두 문자가 교체되어 대입 공간의 수학적 안전성을 확장합니다.</p>
+                </div>
+            </div>
+            <div class="section">
+                <div class="section-title">사용자 정의 수동 암호 영점</div>
+                <div class="control-row">
+                    <span class="control-label">좌측 로터(L) 위치</span>
+                    <select id="pos-l" class="select-box"></select>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">중앙 로터(M) 위치</span>
+                    <select id="pos-m" class="select-box"></select>
+                </div>
+                <div class="control-row" style="margin-bottom:0;">
+                    <span class="control-label">우측 로터(R) 위치</span>
+                    <select id="pos-r" class="select-box"></select>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="viewer-container">
+    <div id="bg-canvas"></div>
+    
+    <div id="upload-ui">
+        <div class="upload-card" id="drop-zone">
+            <h2>에니그마 하드웨어 연구소</h2>
+            <p>.glb 확장자의 에니그마 3D 어셈블리 모델 파일을 드래그하여 놓거나 아래 버튼을 클릭해 불러오세요.</p>
+            <input type="file" id="file-input" style="display:none;" accept=".glb">
+            <button class="btn-primary" onclick="document.getElementById('file-input').click()">3D 에니그마 자산 열기</button>
+            <div id="sys-status">모델 업로드 대기 중...</div>
+        </div>
+    </div>
+</div>
+
+<div id="right-panel" class="panel">
+    <div class="border-glow-card" id="right-glow">
+        <span class="edge-light"></span>
+        <div class="border-glow-inner">
+            <div class="panel-header">독립 변환 실시간 프로세서</div>
+            <div class="section">
+                <div class="mode-tabs">
+                    <button class="mode-tab active" id="tab-enc">인코딩 (암호화)</button>
+                    <button class="mode-tab" id="tab-dec">디코딩 (복호화)</button>
+                    <button class="mode-tab" id="tab-math">역행렬 원리 학습</button>
+                </div>
+                
+                <div id="io-interface">
+                    <div class="section-title" id="io-title">평문 데이터 실시간 입력</div>
+                    <textarea class="text-area-box" id="text-input" placeholder="여기에 알파벳 문장을 입력하세요..."></textarea>
+                    
+                    <div class="section-title" id="result-title">실시간 암호화 출력 결과</div>
+                    <div class="result-display" id="text-output"></div>
+                    
+                    <div class="section-title" style="margin-top:16px;">플러그보드 케이블 연결</div>
+                    <input type="text" class="plug-input" id="plug-config" placeholder="예: AB CD EF (공백 구분)">
+                </div>
+
+                <div id="math-edu-box" class="hidden">
+                    <div class="info-desc">
+                        <h3>🧮 역행렬(Inverse Matrix)의 기본 원리</h3>
+                        <img src="Gemini_Generated_Image_caia0kcaia0kcaia.png" alt="역행렬 설명 이미지" style="width: 100%; border-radius: 12px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.1);">
+                        <p>숫자 연산에서 곱셈의 반대가 역수 곱셈이듯, 선형대수학에서는 어떤 행렬 A의 변환 효과를 완전히 되돌려 놓는 행렬을 <b>역행렬(A<sup>-1</sup>)</b>이라고 부릅니다.</p>
+                        <p style="margin-top:8px;">즉, A &times; A<sup>-1</sup> = I (항등행렬: 변화 없음)이 성립하여 데이터가 원상 복구됩니다.</p>
+                    </div>
+                    <div class="info-desc">
+                        <h3>⚙️ 에니그마와 역행렬의 만남</h3>
+                        <p>에니그마의 변환 과정은 거대한 치환 행렬 E로 표현됩니다. 평문 x에 E를 곱하면 암호문 y가 됩니다. (y = Ex)</p>
+                        <p style="margin-top:8px;">이 암호를 풀려면 y에 역행렬 E<sup>-1</sup>을 곱해야 합니다. (x = E<sup>-1</sup>y)</p>
+                    </div>
+                    <div class="info-desc" style="border-color: rgba(192,132,252,0.5);">
+                        <h3>✨ 반사판이 만든 기적: 자기반전(Involution)</h3>
+                        <p>에니그마 내부의 <b>반사판(Reflector)</b>은 신호를 대칭적으로 튕겨냅니다. 이 특성 때문에 에니그마 행렬 E는 <b>자기 자신이 곧 역행렬</b>이 되는 마법 같은 성질을 갖습니다. (E = E<sup>-1</sup>)</p>
+                        <p style="margin-top:8px;">따라서 복호화 전용 기계 없이, <b>인코딩할 때와 똑같은 기계 세팅(E)에 암호문을 넣기만 하면 평문이 그대로 복원</b>(x = Ey)되는 원리입니다!</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section" style="border-bottom:none; flex:1;">
+                <div class="section-title" id="tracker-title">실시간 내부 전기 신호 & 대수 행렬 추적기</div>
+                <div class="terminal" id="trace-box">입출력 패널에 알파벳을 기입하면 실시간 가동 분석 물리 로그 및 선형대수학적 치환 행렬 연산식 수식이 출력됩니다.</div>
+                <button class="btn-reset" onclick="clearAllFields()">모든 데이터 초기화</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+import { Renderer, Program, Mesh, Triangle } from 'ogl';
+
+function initLineWaves() {
+    const container = document.getElementById('bg-canvas');
+    const viewer = document.getElementById('viewer-container'); // 3D 뷰어 컨테이너 기준 마우스 추적
+    const renderer = new Renderer({ alpha: true, premultipliedAlpha: false });
+    const gl = renderer.gl;
+    gl.clearColor(0, 0, 0, 0);
+
+    const vertexShader = `
+    attribute vec2 uv; attribute vec2 position; varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position, 0, 1); }`;
+
+    const fragmentShader = `
+    precision highp float; uniform float uTime; uniform vec3 uResolution; uniform float uSpeed; uniform float uInnerLines; uniform float uOuterLines; uniform float uWarpIntensity; uniform float uRotation; uniform float uEdgeFadeWidth; uniform float uColorCycleSpeed; uniform float uBrightness; uniform vec3 uColor1; uniform vec3 uColor2; uniform vec3 uColor3; uniform vec2 uMouse; uniform float uMouseInfluence; uniform bool uEnableMouse;
+    #define HALF_PI 1.5707963
+    float hashF(float n) { return fract(sin(n * 127.1) * 43758.5453123); }
+    float smoothNoise(float x) { float i = floor(x); float f = fract(x); float u = f * f * (3.0 - 2.0 * f); return mix(hashF(i), hashF(i + 1.0), u); }
+    float displaceA(float coord, float t) { float result = sin(coord * 2.123) * 0.2; result += sin(coord * 3.234 + t * 4.345) * 0.1; result += sin(coord * 0.589 + t * 0.934) * 0.5; return result; }
+    float displaceB(float coord, float t) { float result = sin(coord * 1.345) * 0.3; result += sin(coord * 2.734 + t * 3.345) * 0.2; result += sin(coord * 0.189 + t * 0.934) * 0.3; return result; }
+    vec2 rotate2D(vec2 p, float angle) { float c = cos(angle); float s = sin(angle); return vec2(p.x * c - p.y * s, p.x * s + p.y * c); }
+    void main() {
+        vec2 coords = gl_FragCoord.xy / uResolution.xy; coords = coords * 2.0 - 1.0; coords = rotate2D(coords, uRotation);
+        float halfT = uTime * uSpeed * 0.5; float fullT = uTime * uSpeed;
+        float mouseWarp = 0.0;
+        if (uEnableMouse) { vec2 mPos = rotate2D(uMouse * 2.0 - 1.0, uRotation); float mDist = length(coords - mPos); mouseWarp = uMouseInfluence * exp(-mDist * mDist * 4.0); }
+        float warpAx = coords.x + displaceA(coords.y, halfT) * uWarpIntensity + mouseWarp;
+        float warpAy = coords.y - displaceA(coords.x * cos(fullT) * 1.235, halfT) * uWarpIntensity;
+        float warpBx = coords.x + displaceB(coords.y, halfT) * uWarpIntensity + mouseWarp;
+        float warpBy = coords.y - displaceB(coords.x * sin(fullT) * 1.235, halfT) * uWarpIntensity;
+        vec2 fieldA = vec2(warpAx, warpAy); vec2 fieldB = vec2(warpBx, warpBy); vec2 blended = mix(fieldA, fieldB, mix(fieldA, fieldB, 0.5));
+        float fadeTop = smoothstep(uEdgeFadeWidth, uEdgeFadeWidth + 0.4, blended.y); float fadeBottom = smoothstep(-uEdgeFadeWidth, -(uEdgeFadeWidth + 0.4), blended.y); float vMask = 1.0 - max(fadeTop, fadeBottom);
+        float tileCount = mix(uOuterLines, uInnerLines, vMask); float scaledY = blended.y * tileCount; float nY = smoothNoise(abs(scaledY));
+        float ridge = pow(step(abs(nY - blended.x) * 2.0, HALF_PI) * cos(2.0 * (nY - blended.x)), 5.0);
+        float lines = 0.0; for (float i = 1.0; i < 3.0; i += 1.0) { lines += pow(max(fract(scaledY), fract(-scaledY)), i * 2.0); }
+        float pattern = vMask * lines; float cycleT = fullT * uColorCycleSpeed;
+        float rChannel = (pattern + lines * ridge) * (cos(blended.y + cycleT * 0.234) * 0.5 + 1.0);
+        float gChannel = (pattern + vMask * ridge) * (sin(blended.x + cycleT * 1.745) * 0.5 + 1.0);
+        float bChannel = (pattern + lines * ridge) * (cos(blended.x + cycleT * 0.534) * 0.5 + 1.0);
+        vec3 col = (rChannel * uColor1 + gChannel * uColor2 + bChannel * uColor3) * uBrightness;
+        gl_FragColor = vec4(col, clamp(length(col), 0.0, 1.0));
+    }`;
+
+    function hexToVec3(hex) { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255]; }
+    let currentMouse = [0.5, 0.5], targetMouse = [0.5, 0.5];
+    
+    // 3D 모델 영역 내부에서의 마우스 포인터만 추적
+    function handleMouseMove(e) { 
+        const rect = viewer.getBoundingClientRect(); 
+        targetMouse = [(e.clientX - rect.left) / rect.width, 1.0 - ((e.clientY - rect.top) / rect.height)]; 
+    }
+    function handleMouseLeave() { targetMouse = [0.5, 0.5]; }
+    
+    function resize() { 
+        renderer.setSize(container.offsetWidth, container.offsetHeight); 
+        if (program) { program.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height]; } 
+    }
+    
+    window.addEventListener('resize', resize);
+    const geometry = new Triangle(gl);
+    
+    // 제공된 원본 설정값 (#ffffff, brightness 0.2, speed 0.3 등)
+    let program = new Program(gl, {
+        vertex: vertexShader, fragment: fragmentShader,
+        uniforms: {
+            uTime: { value: 0 }, uResolution: { value: [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height] },
+            uSpeed: { value: 0.3 }, uInnerLines: { value: 32.0 }, uOuterLines: { value: 36.0 }, uWarpIntensity: { value: 1.0 },
+            uRotation: { value: (-45 * Math.PI) / 180 }, uEdgeFadeWidth: { value: 0.0 }, uColorCycleSpeed: { value: 1.0 }, uBrightness: { value: 0.2 },
+            uColor1: { value: hexToVec3('#ffffff') }, uColor2: { value: hexToVec3('#ffffff') }, uColor3: { value: hexToVec3('#ffffff') },
+            uMouse: { value: new Float32Array([0.5, 0.5]) }, uMouseInfluence: { value: 2.0 }, uEnableMouse: { value: true }
+        }
+    });
+    const mesh = new Mesh(gl, { geometry, program });
+    container.appendChild(gl.canvas);
+    resize();
+
+    viewer.addEventListener('mousemove', handleMouseMove);
+    viewer.addEventListener('mouseleave', handleMouseLeave);
+
+    requestAnimationFrame(function update(time) {
+        program.uniforms.uTime.value = time * 0.001;
+        currentMouse[0] += 0.05 * (targetMouse[0] - currentMouse[0]);
+        currentMouse[1] += 0.05 * (targetMouse[1] - currentMouse[1]);
+        program.uniforms.uMouse.value[0] = currentMouse[0];
+        program.uniforms.uMouse.value[1] = currentMouse[1];
+        renderer.render({ scene: mesh });
+        requestAnimationFrame(update);
+    });
+}
+initLineWaves();
+</script>
+
+<script type="module">
+function parseHSL(hslStr) {
+    const match = hslStr.match(/([\d.]+)\s*([\d.]+)%?\s*([\d.]+)%?/);
+    if (!match) return { h: 40, s: 80, l: 80 };
+    return { h: parseFloat(match[1]), s: parseFloat(match[2]), l: parseFloat(match[3]) };
+}
+
+function buildGlowVars(glowColor, intensity) {
+    const { h, s, l } = parseHSL(glowColor);
+    const base = `${h}deg ${s}% ${l}%`;
+    const opacities = [100, 60, 50, 40, 30, 20, 10];
+    const keys = ['', '-60', '-50', '-40', '-30', '-20', '-10'];
+    const vars = {};
+    for (let i = 0; i < opacities.length; i++) {
+        vars[`--glow-color${keys[i]}`] = `hsl(${base} / ${Math.min(opacities[i] * intensity, 100)}%)`;
+    }
+    return vars;
+}
+
+const GRADIENT_POSITIONS = ['80% 55%', '69% 34%', '8% 6%', '41% 38%', '86% 85%', '82% 18%', '51% 4%'];
+const GRADIENT_KEYS = ['--gradient-one', '--gradient-two', '--gradient-three', '--gradient-four', '--gradient-five', '--gradient-six', '--gradient-seven'];
+const COLOR_MAP = [0, 1, 2, 0, 1, 2, 1];
+
+function buildGradientVars(colors) {
+    const vars = {};
+    for (let i = 0; i < 7; i++) {
+        const c = colors[Math.min(COLOR_MAP[i], colors.length - 1)];
+        vars[GRADIENT_KEYS[i]] = `radial-gradient(at ${GRADIENT_POSITIONS[i]}, ${c} 0px, transparent 50%)`;
+    }
+    vars['--gradient-base'] = `linear-gradient(${colors[0]} 0 100%)`;
+    return vars;
+}
+
+function initBorderGlow(elementId, options = {}) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    const edgeSensitivity = options.edgeSensitivity || 30;
+    const glowColor = options.glowColor || '40 80 80';
+    const backgroundColor = options.backgroundColor || '#120F17';
+    const borderRadius = options.borderRadius || 28;
+    const glowRadius = options.glowRadius || 40;
+    const glowIntensity = options.glowIntensity || 1.0;
+    const coneSpread = options.coneSpread || 25;
+    const colors = options.colors || ['#c084fc', '#f472b6', '#38bdf8'];
+    const fillOpacity = options.fillOpacity || 0.5;
+
+    el.style.setProperty('--card-bg', backgroundColor);
+    el.style.setProperty('--edge-sensitivity', edgeSensitivity);
+    el.style.setProperty('--border-radius', `${borderRadius}px`);
+    el.style.setProperty('--glow-padding', `${glowRadius}px`);
+    el.style.setProperty('--cone-spread', coneSpread);
+    el.style.setProperty('--fill-opacity', fillOpacity);
+
+    const glowVars = buildGlowVars(glowColor, glowIntensity);
+    for (let k in glowVars) el.style.setProperty(k, glowVars[k]);
+
+    const gradVars = buildGradientVars(colors);
+    for (let k in gradVars) el.style.setProperty(k, gradVars[k]);
+
+    const getCenterOfElement = (target) => {
+        const { width, height } = target.getBoundingClientRect();
+        return [width / 2, height / 2];
+    };
+
+    const getEdgeProximity = (target, x, y) => {
+        const [cx, cy] = getCenterOfElement(target);
+        const dx = x - cx; const dy = y - cy;
+        let kx = Infinity, ky = Infinity;
+        if (dx !== 0) kx = cx / Math.abs(dx);
+        if (dy !== 0) ky = cy / Math.abs(dy);
+        return Math.min(Math.max(1 / Math.min(kx, ky), 0), 1);
+    };
+
+    const getCursorAngle = (target, x, y) => {
+        const [cx, cy] = getCenterOfElement(target);
+        const dx = x - cx; const dy = y - cy;
+        if (dx === 0 && dy === 0) return 0;
+        const radians = Math.atan2(dy, dx);
+        let degrees = radians * (180 / Math.PI) + 90;
+        if (degrees < 0) degrees += 360;
+        return degrees;
+    };
+
+    el.addEventListener('pointermove', (e) => {
+        const rect = el.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const edge = getEdgeProximity(el, x, y);
+        const angle = getCursorAngle(el, x, y);
+        el.style.setProperty('--edge-proximity', `${(edge * 100).toFixed(3)}`);
+        el.style.setProperty('--cursor-angle', `${angle.toFixed(3)}deg`);
+    });
+}
+
+initBorderGlow('left-glow');
+initBorderGlow('right-glow');
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const WIRING = {
+    I: "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
+    II: "AJDKSIRUXBLHWTMCQGZNPYFVOE",
+    III: "BDFHJLCPRTXVZNYEIWGAKMUSQO",
+    UKW_B: "YRUHQSLDPXNGOKMIEBFZCWVJAT"
+};
+const cToN = (c) => c.charCodeAt(0) - 65;
+const nToC = (n) => String.fromCharCode(((n % 26) + 26) % 26 + 65);
+
+const container = document.getElementById('viewer-container');
+const scene = new THREE.Scene();
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setClearColor(0x000000, 0); // 3D 뷰어 완전한 투명화 처리로 후면 LineWaves 배경 투영 보장
+container.appendChild(renderer.domElement);
+
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+camera.position.set(0, 110, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const dLight1 = new THREE.DirectionalLight(0xffffff, 2.5); dLight1.position.set(100, 150, 50); scene.add(dLight1);
+const dLight2 = new THREE.DirectionalLight(0xc084fc, 1.5); dLight2.position.set(-100, 50, -50); scene.add(dLight2);
+
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+
+document.getElementById('file-input').addEventListener('change', (e) => loadGLB(e.target.files[0]));
+document.getElementById('drop-zone').addEventListener('dragover', (e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#c084fc'; });
+document.getElementById('drop-zone').addEventListener('dragleave', (e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; });
+document.getElementById('drop-zone').addEventListener('drop', (e) => { e.preventDefault(); loadGLB(e.dataTransfer.files[0]); });
+
+function loadGLB(file) {
+    if (!file) return;
+    document.getElementById('sys-status').innerText = "독립 공간 생성 및 자산 정규화 중...";
+    while(modelGroup.children.length > 0) modelGroup.remove(modelGroup.children[0]);
+
+    new GLTFLoader().load(URL.createObjectURL(file), (gltf) => {
+        const model = gltf.scene;
+        
+        const wrapper = new THREE.Group();
+        wrapper.add(model);
+        
+        const box = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        
+        model.position.set(-center.x, -center.y, -center.z);
+
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (maxDim > 0) wrapper.scale.setScalar(120 / maxDim);
+
+        model.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+                if(child.material) {
+                    const mats = Array.isArray(child.material) ? child.material : [child.material];
+                    mats.forEach(mat => {
+                        mat.side = THREE.DoubleSide;
+                        if (mat.color) mat.color.setHex(0x999999);
+                        mat.metalness = 0.95; 
+                        mat.roughness = 0.25;
+                        if ('needsUpdate' in mat) mat.needsUpdate = true;
+                    });
+                }
+            }
+        });
+
+        modelGroup.add(wrapper);
+        camera.position.set(0, 90, 180);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        document.getElementById('upload-ui').style.display = 'none';
+        document.getElementById('left-panel').style.display = 'flex';
+        document.getElementById('right-panel').style.display = 'flex';
+        handleResize();
+    }, (xhr) => {
+        if(xhr.total > 0) {
+            let p = Math.round((xhr.loaded / xhr.total) * 100);
+            document.getElementById('sys-status').innerText = `파싱 진행 중: ${p}%`;
+        }
+    }, (err) => {
+        console.error(err);
+        document.getElementById('sys-status').innerText = "오류 발생: GLB 파일 가공 상태를 점검하세요.";
+    });
+}
+
+function initSelectors() {
+    const alphas = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    ['pos-l', 'pos-m', 'pos-r'].forEach(id => {
+        const el = document.getElementById(id);
+        alphas.forEach((a, index) => {
+            let opt = document.createElement('option'); opt.value = index; opt.innerText = `영점 [${a}]`;
+            el.appendChild(opt);
+        });
+    });
+}
+initSelectors();
+
+let currentMode = 'enc'; 
+
+document.getElementById('tab-enc').onclick = () => switchTab('enc');
+document.getElementById('tab-dec').onclick = () => switchTab('dec');
+document.getElementById('tab-math').onclick = () => switchTab('math');
+
+function switchTab(mode) {
+    currentMode = mode;
+    ['tab-enc', 'tab-dec', 'tab-math'].forEach(id => document.getElementById(id).classList.remove('active'));
+    document.getElementById(`tab-${mode}`).classList.add('active');
+
+    const ioInterface = document.getElementById('io-interface');
+    const mathEduBox = document.getElementById('math-edu-box');
+
+    if (mode === 'math') {
+        ioInterface.classList.add('hidden');
+        mathEduBox.classList.remove('hidden');
+        document.getElementById('trace-box').innerHTML = "역행렬 탭 활성화: 학습 내용을 읽어보세요.";
+    } else {
+        ioInterface.classList.remove('hidden');
+        mathEduBox.classList.add('hidden');
+        if (mode === 'enc') {
+            document.getElementById('io-title').innerText = "평문 데이터 실시간 입력";
+            document.getElementById('result-title').innerText = "실시간 암호화 출력 결과";
+        } else {
+            document.getElementById('io-title').innerText = "암호문 데이터 실시간 입력";
+            document.getElementById('result-title').innerText = "실시간 복호화 출력 결과";
+        }
+        processEnigma();
+    }
+}
+
+document.getElementById('text-input').oninput = processEnigma;
+document.getElementById('plug-config').oninput = processEnigma;
+['pos-l', 'pos-m', 'pos-r'].forEach(id => document.getElementById(id).onchange = processEnigma);
+
+function processEnigma() {
+    if(currentMode === 'math') return;
+
+    const srcText = document.getElementById('text-input').value.toUpperCase();
+    const posL = parseInt(document.getElementById('pos-l').value) || 0;
+    const posM = parseInt(document.getElementById('pos-m').value) || 0;
+    const posR = parseInt(document.getElementById('pos-r').value) || 0;
+    
+    let pb = {};
+    const pairs = document.getElementById('plug-config').value.toUpperCase().trim().split(/\s+/);
+    for (let p of pairs) {
+        if (p.length === 2) { pb[p[0]] = p[1]; pb[p[1]] = p[0]; }
+    }
+
+    let result = "";
+    let lastTrace = [];
+
+    for (let i = 0; i < srcText.length; i++) {
+        let char = srcText[i];
+        if (char < 'A' || char > 'Z') { result += char; continue; }
+
+        let current = char;
+        let trace = [`<strong>[물리적 전기 경로 추적] 단일 기입: ${char}</strong>`];
+
+        if (pb[current]) { trace.push(`플러그 커넥터 교환: ${current} ➔ ${pb[current]}`); current = pb[current]; }
+
+        let sig = cToN(current);
+
+        sig = (sig + posR) % 26; sig = cToN(WIRING.III[sig]); sig = (sig - posR + 26) % 26;
+        trace.push(`<span class="t-fwd">Rotor III (우측) 진입 ➔ ${nToC(sig)}</span>`);
+
+        sig = (sig + posM) % 26; sig = cToN(WIRING.II[sig]); sig = (sig - posM + 26) % 26;
+        trace.push(`<span class="t-fwd">Rotor II (중앙) 진입 ➔ ${nToC(sig)}</span>`);
+
+        sig = (sig + posL) % 26; sig = cToN(WIRING.I[sig]); sig = (sig - posL + 26) % 26;
+        trace.push(`<span class="t-fwd">Rotor I (좌측) 진입 ➔ ${nToC(sig)}</span>`);
+
+        sig = cToN(WIRING.UKW_B[sig]);
+        trace.push(`<span class="t-ref">반사판(Reflector) 거울 반전 ⇄ ${nToC(sig)}</span>`);
+
+        sig = (sig + posL) % 26; sig = WIRING.I.indexOf(nToC(sig)); sig = (sig - posL + 26) % 26;
+        trace.push(`<span class="t-bak">Rotor I (좌측) 역방향 ➔ ${nToC(sig)}</span>`);
+
+        sig = (sig + posM) % 26; sig = WIRING.II.indexOf(nToC(sig)); sig = (sig - posM + 26) % 26;
+        trace.push(`<span class="t-bak">Rotor II (중앙) 역방향 ➔ ${nToC(sig)}</span>`);
+
+        sig = (sig + posR) % 26; sig = WIRING.III.indexOf(nToC(sig)); sig = (sig - posR + 26) % 26;
+        trace.push(`<span class="t-bak">Rotor III (우측) 역방향 ➔ ${nToC(sig)}</span>`);
+
+        let outChar = nToC(sig);
+        if (pb[outChar]) { trace.push(`플러그 커넥터 최종 교환: ${outChar} ➔ ${pb[outChar]}`); outChar = pb[outChar]; }
+
+        result += outChar;
+        
+        let vecIdx = cToN(char);
+        let mathPrefix = currentMode === 'enc' 
+            ? `<span style="color:#81c995; font-weight:500;">종합 인코딩 변환식: <b>y</b> = E · <b>x</b></span>`
+            : `<span style="color:#81c995; font-weight:500;">종합 복호화 변환식: <b>x</b> = E<sup>-1</sup> · <b>y</b> (여기서 E = E<sup>-1</sup> 이므로 <b>x = E · y</b> 적용됨)</span>`;
+
+        let mathTrace = [
+            `<br><strong>[대수적 치환 행렬 연산식 (Matrix Formulation)]</strong>`,
+            `<span class="t-math">1. 입력 표준 기저 벡터 정의:</span>`,
+            `   <b>x</b> = [${vecIdx===0?'1':'0'}, ${vecIdx===1?'1':'0'}, ..., ${vecIdx===25?'1':'0'}]<sup>T</sup> (26차원 공간)`,
+            `<span class="t-math">2. 플러그보드 대칭 치환 행렬 적용 (S = S<sup>T</sup> = S<sup>-1</sup>):</span>`,
+            `   <b>v₁</b> = S · <b>x</b> ➔ 교환값 벡터 인덱스 지정`,
+            `<span class="t-math">3. 로터 정방향 경로 합성 치환 행렬 계산:</span>`,
+            `   <b>v₂</b> = M<sub>fwd</sub> · <b>v₁</b> = (R<sub>I</sub> · R<sub>II</sub> · R<sub>III</sub>) · <b>v₁</b>`,
+            `<span class="t-math">4. 반사판 대칭 행렬 역변환 성립 (U = U<sup>T</sup> = U<sup>-1</sup>):</span>`,
+            `   <b>v₃</b> = U · <b>v₂</b> (자기 대입 배제 회로 구조)`,
+            `<span class="t-math">5. 로터 역방향 경로 전치 행렬 연산 (M<sub>bwd</sub> = M<sub>fwd</sub><sup>T</sup>):</span>`,
+            `   <b>v₄</b> = M<sub>fwd</sub><sup>T</sup> · <b>v₃</b> = (R<sub>III</sub><sup>T</sup> · R<sub>II</sub><sup>T</sup> · R<sub>I</sub><sup>T</sup>) · <b>v₃</b>`,
+            `<span class="t-math">6. 플러그보드 최종 대칭 곱 연산에 의한 출력 벡터:</span>`,
+            `   <b>y</b> = S · <b>v₄</b> ➔ 최종 매핑 벡터 기저 검출 완료`,
+            mathPrefix,
+            `<span style="color:#a8c7fa; font-size:11px;">* 대칭성 증명: E<sup>T</sup> = E 이므로 전체 암·복호화 연산 행렬은 자기반전형 <b>E = E<sup>-1</sup></b> 구조를 가짐.</span>`
+        ];
+        
+        lastTrace = trace.concat(mathTrace);
+    }
+
+    document.getElementById('text-output').innerText = result;
+    if (srcText.length > 0 && lastTrace.length > 0) {
+        document.getElementById('trace-box').innerHTML = lastTrace.join("<br>");
+    } else {
+        document.getElementById('trace-box').innerText = "입출력 패널에 알파벳을 기입하면 실시간 가동 분석 물리 로그 및 선형대수학적 치환 행렬 연산식 수식이 출력됩니다.";
+    }
+}
+
+window.clearAllFields = function() {
+    if(currentMode !== 'math') {
+        document.getElementById('text-input').value = "";
+        document.getElementById('plug-config').value = "";
+    }
+    document.getElementById('pos-l').value = 0;
+    document.getElementById('pos-m').value = 0;
+    document.getElementById('pos-r').value = 0;
+    processEnigma();
+};
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+animate();
+
+function handleResize() {
+    if (!container) return;
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+}
+window.addEventListener('resize', handleResize);
+handleResize();
+</script>
+</body>
+</html>
